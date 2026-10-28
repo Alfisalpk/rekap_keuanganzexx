@@ -1,0 +1,1887 @@
+<script>
+  const $ = (q, root = document) => root.querySelector(q),
+    $$ = (q, root = document) => [...root.querySelectorAll(q)];
+  const handledLoginEvents = new WeakSet();
+  document.addEventListener(
+    "submit",
+    (event) => {
+      if (event.target && event.target.id === "loginForm") {
+        login(event);
+      }
+    },
+    true,
+  );
+  function readStoredToken() {
+    try {
+      return window.sessionStorage.getItem("zexxToken") || "";
+    } catch (error) {
+      return "";
+    }
+  }
+  function writeStoredToken(token) {
+    try {
+      window.sessionStorage.setItem("zexxToken", token);
+    } catch (error) {
+      // Sesi tetap dapat digunakan sampai halaman ditutup.
+    }
+  }
+  function clearStoredToken() {
+    try {
+      window.sessionStorage.removeItem("zexxToken");
+    } catch (error) {
+      // Penyimpanan sesi mungkin tidak tersedia di iframe tertentu.
+    }
+  }
+  const state = {
+    token: readStoredToken(),
+    user: null,
+    data: null,
+    ruang: "tabungan",
+    page: "dashboard",
+    month: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
+    charts: [],
+    search: "",
+    filterMonth: "all",
+  };
+  let loadingCount = 0;
+  function setLoading(active, message = "Sedang memuat…") {
+    loadingCount = Math.max(0, loadingCount + (active ? 1 : -1));
+    const overlay = $("#loadingOverlay");
+    if (!overlay) return;
+    $("#loadingMessage").textContent = message;
+    overlay.classList.toggle("hidden", loadingCount === 0);
+  }
+  const titles = {
+    dashboard: "Ringkasan keuangan",
+    transactions: "Transaksi",
+    loans: "Peminjaman",
+    calendar: "Kalender keuangan",
+    statistics: "Statistik keuangan",
+    reports: "Rekap & ekspor",
+    users: "Pengguna aplikasi",
+    settings: "Pengaturan akun",
+  };
+  const money = (n) =>
+      new Intl.NumberFormat("id-ID", {
+        style: "currency",
+        currency: "IDR",
+        maximumFractionDigits: 0,
+      }).format(Number(n) || 0),
+    esc = (s) =>
+      String(s ?? "").replace(
+        /[&<>"']/g,
+        (c) =>
+          ({
+            "&": "&amp;",
+            "<": "&lt;",
+            ">": "&gt;",
+            '"': "&quot;",
+            "'": "&#39;",
+          })[c],
+      );
+  function call(action, payload = {}) {
+    setLoading(true, "Memuat data…");
+    return new Promise((resolve, reject) =>
+      google.script.run
+        .withSuccessHandler((result) => {
+          setLoading(false);
+          resolve(result);
+        })
+        .withFailureHandler((e) => {
+          setLoading(false);
+          reject(new Error(e.message || e));
+        })
+        .api(state.token, action, payload),
+    );
+  }
+  function toast(message, error = false) {
+    const el = document.createElement("div");
+    el.className = "toast" + (error ? " error" : "");
+    el.textContent = message;
+    $("#toastHost").append(el);
+    setTimeout(() => el.remove(), 3500);
+  }
+  function apiError(e) {
+    toast(e.message || "Terjadi kesalahan.", true);
+    if ((e.message || "").includes("Sesi berakhir")) logout(false);
+  }
+  function showLogin() {
+    $("#loginView").classList.remove("hidden");
+    $("#appView").classList.add("hidden");
+  }
+  function showApp(user) {
+    state.user = user;
+    $("#loginView").classList.add("hidden");
+    $("#appView").classList.remove("hidden");
+    $("#userName").textContent = user.nama;
+    $("#userRole").textContent =
+      user.role === "admin" ? "Administrator" : "Pengguna";
+    $("#userAvatar").textContent = user.nama.trim().slice(0, 1).toUpperCase();
+    $$(".admin-only").forEach((x) =>
+      x.classList.toggle("hidden", user.role !== "admin"),
+    );
+    $("#todayLabel").textContent = new Intl.DateTimeFormat("id-ID", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    }).format(new Date());
+    loadData();
+  }
+  async function loadData() {
+    try {
+      state.data = await call("bootstrap", { ruang: state.ruang });
+      renderPage();
+    } catch (e) {
+      apiError(e);
+    }
+  }
+  async function login(e) {
+    if (handledLoginEvents.has(e)) return;
+    handledLoginEvents.add(e);
+    e.preventDefault();
+    const form = new FormData(e.target),
+      err = $("#loginError");
+    err.textContent = "Memeriksa akun…";
+    setLoading(true, "Memeriksa akun…");
+    try {
+      const r = await new Promise((resolve, reject) =>
+        google.script.run
+          .withSuccessHandler(resolve)
+          .withFailureHandler((x) => reject(new Error(x.message)))
+          .login(form.get("username"), form.get("password")),
+      );
+      state.token = r.token;
+      writeStoredToken(r.token);
+      err.textContent = "";
+      showApp(r.user);
+    } catch (x) {
+      err.textContent = x.message;
+    } finally {
+      setLoading(false);
+    }
+  }
+  function logout(remote = true) {
+    if (remote && state.token) google.script.run.logout(state.token);
+    state.token = "";
+    clearStoredToken();
+    state.user = null;
+    showLogin();
+  }
+  function setPage(page, ruang = state.ruang) {
+    state.page = page;
+    if (ruang) state.ruang = ruang;
+    $$(".nav-link").forEach((x) =>
+      x.classList.toggle(
+        "selected",
+        x.dataset.page === page &&
+          (x.dataset.ruang || state.ruang) === state.ruang,
+      ),
+    );
+    if (
+      [
+        "dashboard",
+        "transactions",
+        "loans",
+        "calendar",
+        "statistics",
+        "reports",
+      ].includes(page)
+    ) {
+      const child = $("#group-" + state.ruang);
+      child.classList.remove("hidden");
+      $$(".nav-parent").forEach((p) =>
+        p.classList.toggle("active", p.dataset.group === state.ruang),
+      );
+      $$(".nav-parent").forEach((p) =>
+        p.classList.toggle("open", p.dataset.group === state.ruang),
+      );
+    }
+    $("#crumbTitle").textContent = titles[page];
+    $("#sectionEyebrow").textContent =
+      state.ruang === "tabungan" ? "TABUNGAN BERSAMA" : "UMROH BERSAMA";
+    $("#pageTitle").textContent = titles[page];
+    $("#pageSubtitle").textContent =
+      page === "dashboard"
+        ? "Pantau arus uang dan perkembangan saldo Anda."
+        : page === "statistics"
+          ? "Analisis pola keuangan dan bandingkan perkembangan tiap bulan."
+          : page === "calendar"
+            ? "Pilih tanggal untuk mencatat pemasukan atau pengeluaran."
+            : "";
+    $("#sidebar").classList.remove("open");
+    loadData();
+  }
+  function renderPage() {
+    if (!state.data) return;
+    state.charts.forEach((c) => c.destroy());
+    state.charts = [];
+    const root = $("#pageContent");
+    (
+      ({
+        dashboard: renderDashboard,
+        transactions: renderTransactions,
+        loans: renderLoans,
+        calendar: renderCalendar,
+        statistics: renderStatistics,
+        reports: renderReports,
+        users: renderUsers,
+        settings: renderSettings,
+      })[state.page] || renderDashboard
+    )(root);
+  }
+  function metric(label, value, icon, kind, foot) {
+    return `
+<article class="card metric">
+<div class="metric-top">
+${label}
+<span class="metric-icon ${kind || ""}
+">
+<i class="${icon}
+">
+</i>
+</span>
+</div>
+<div class="metric-value">
+${value}
+</div>
+<div class="metric-foot">
+${foot || "Ringkasan seluruh periode"}
+</div>
+</article>
+`;
+  }
+  function renderDashboard(root) {
+    const s = state.data.summary,
+      loans = state.data.loans.filter((x) => x.status !== "Lunas").slice(0, 5),
+      months = monthlySeries();
+    root.innerHTML = `
+<div class="grid stats-grid">
+${metric("Saldo bersih", money(s.balance), "fa-solid fa-wallet", "", "Kas masuk termasuk pengembalian, dikurangi pengeluaran")}${metric(
+      "Total pemasukan",
+      money(s.income),
+      "fa-solid fa-arrow-down green",
+      "green",
+      `Bulan ini 
+<strong>
+${money(s.monthIncome)}
+</strong> · Pengembalian ${money(s.monthRepayments)}
+`,
+    )}${metric(
+      "Total pengeluaran",
+      money(s.expense),
+      "fa-solid fa-arrow-up orange",
+      "orange",
+      `Bulan ini 
+<strong>
+${money(s.monthExpense)}
+</strong>
+`,
+    )}${metric("Sisa pinjaman", money(s.outstanding), "fa-solid fa-hand-holding-dollar pink", "pink", `${s.openLoans} pinjaman belum lunas`)}
+</div>
+<div class="grid dashboard-grid">
+<article class="card">
+<div class="card-head">
+<div>
+<div class="card-title">
+Arus kas bulanan
+</div>
+<div class="card-subtitle">
+Pemasukan dan pengeluaran dalam 12 bulan terakhir
+</div>
+</div>
+<button class="button small soft" data-page="statistics" data-ruang="${
+      state.ruang
+    }
+">
+Lihat analisis
+</button>
+</div>
+<div class="chart-box">
+<canvas id="cashChart">
+</canvas>
+</div>
+</article>
+<article class="card">
+<div class="card-head">
+<div>
+<div class="card-title">
+Pinjaman belum lunas
+</div>
+<div class="card-subtitle">
+Pantau sisa uang yang perlu dikembalikan
+</div>
+</div>
+<span class="badge red">
+${s.openLoans} aktif
+</span>
+</div>
+${
+  loans.length
+    ? `
+<div class="loan-alerts">
+${loans
+  .map(
+    (x) => `
+<div class="loan-alert">
+<div>
+<b>
+${esc(x.peminjam)}
+</b>
+<small>
+${esc(x.kode)} · ${esc(x.tanggal)}
+</small>
+</div>
+<strong>
+${money(x.jumlah - x.terbayar)}
+</strong>
+</div>
+`,
+  )
+  .join("")}
+</div>
+<div class="loan-total">
+<span>
+Total belum dikembalikan
+</span>
+<b>
+${money(s.outstanding)}
+</b>
+</div>
+`
+    : `
+<div class="empty">
+Tidak ada pinjaman aktif. Mantap!
+</div>
+`
+}
+</article>
+</div>
+<article class="card section-gap">
+<div class="card-head">
+<div>
+<div class="card-title">
+Transaksi terbaru
+</div>
+<div class="card-subtitle">
+Aktivitas terbaru di ${state.ruang === "tabungan" ? "Tabungan Bersama" : "Umroh Bersama"}
+</div>
+</div>
+<button class="button small" data-page="transactions" data-ruang="${state.ruang}
+">
+Semua transaksi
+</button>
+</div>
+${transactionTable(state.data.transactions.slice(0, 6), false)}
+</article>
+`;
+    makeChart("cashChart", {
+      type: "bar",
+      data: {
+        labels: months.labels,
+        datasets: [
+          {
+            label: "Pemasukan",
+            data: months.income,
+            backgroundColor: "#596df6",
+            borderRadius: 5,
+          },
+          {
+            label: "Pengembalian pinjaman",
+            data: months.repayments,
+            backgroundColor: "#24b88a",
+            borderRadius: 5,
+          },
+          {
+            label: "Pengeluaran",
+            data: months.expense,
+            backgroundColor: "#a8b7ff",
+            borderRadius: 5,
+          },
+        ],
+      },
+      options: chartOptions(),
+    });
+  }
+  function transactionTable(items, includeActions = true) {
+    if (!items.length)
+      return `
+<div class="empty">
+Belum ada catatan transaksi.
+</div>
+`;
+    return `
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>
+Kode
+</th>
+<th>
+Tanggal
+</th>
+<th>
+Jenis
+</th>
+<th>
+Kategori
+</th>
+<th>
+Keterangan
+</th>
+<th>
+Dicatat oleh
+</th>
+<th>
+Jumlah
+</th>
+${
+  includeActions
+    ? `
+<th>
+Aksi
+</th>
+ `
+    : ""
+}
+</tr>
+</thead>
+<tbody>
+${items
+  .map(
+    (x) => `
+<tr>
+<td>
+<span class="code">
+${esc(x.kode)}
+</span>
+</td>
+<td>
+${esc(x.tanggal)}
+</td>
+<td>
+<span class="badge ${x.jenis === "keluar" ? "red" : ""}
+">
+${x.jenis === "masuk" ? "Masuk" : "Keluar"}
+</span>
+</td>
+<td>
+${esc(x.kategori)}
+</td>
+<td>
+${esc(x.keterangan || "—")}
+</td>
+<td>
+${esc(x.dicatatOleh || "—")}
+</td>
+<td class="${x.jenis === "masuk" ? "money-in" : "money-out"}
+">
+${x.jenis === "masuk" ? "+" : "−"} ${money(x.jumlah)}
+</td>
+${
+  includeActions
+    ? `
+<td>
+<div class="actions">
+<button class="action-icon" title="Edit" data-action="editTransaction" data-id="${
+        x.id
+      }
+">
+<i class="fa-solid fa-pen">
+</i>
+</button>
+<button class="action-icon" title="Hapus" data-action="deleteTransaction" data-id="${
+        x.id
+      }
+">
+<i class="fa-regular fa-trash-can">
+</i>
+</button>
+</div>
+</td>
+`
+    : ""
+}
+</tr>
+`,
+  )
+  .join("")}
+</tbody>
+</table>
+</div>
+`;
+  }
+  function renderTransactions(root) {
+    const items = filteredTransactions();
+    root.innerHTML = `
+<article class="card table-card">
+<div class="card-head">
+<div>
+<div class="card-title">
+Semua transaksi 
+<span class="badge gray">
+${items.length}
+</span>
+</div>
+<div class="card-subtitle">
+Catatan pemasukan dan pengeluaran
+</div>
+</div>
+<div class="table-tools">
+<input class="search" id="txSearch" placeholder="Cari kategori, kode…" value="${esc(state.search)}">
+<input class="select" id="txMonth" type="month" value="${state.filterMonth === "all" ? "" : state.filterMonth}">
+<button class="button primary small" data-action="newTransaction">
+<i class="fa-solid fa-plus">
+</i>
+ Catat
+</button>
+<button class="button small" data-action="newBulkTransaction">
+<i class="fa-solid fa-list-check"></i>
+Catat massal
+</button>
+</div>
+</div>
+${transactionTable(items, true)}
+</article>
+`;
+  }
+  function filteredTransactions() {
+    return state.data.transactions.filter(
+      (x) =>
+        (!state.search ||
+          [x.kode, x.kategori, x.keterangan, x.dicatatOleh]
+            .join(" ")
+            .toLowerCase()
+            .includes(state.search.toLowerCase())) &&
+        (state.filterMonth === "all" ||
+          String(x.tanggal).slice(0, 7) === state.filterMonth),
+    );
+  }
+  function renderLoans(root) {
+    const loans = state.data.loans,
+      open = loans.filter((x) => x.status !== "Lunas"),
+      s = state.data.summary;
+    root.innerHTML = `
+<div class="grid insight-grid" style="margin-bottom:16px">
+${[
+  ["Total dipinjam", money(s.borrowed)],
+  [
+    "Sudah dikembalikan",
+    money(loans.reduce((a, x) => a + Number(x.terbayar), 0)),
+  ],
+  ["Sisa pinjaman", money(s.outstanding)],
+]
+  .map(
+    ([a, b]) => `
+<article class="card insight">
+<span>
+${a}
+</span>
+<b>
+${b}
+</b>
+</article>
+`,
+  )
+  .join("")}
+</div>
+<article class="card table-card">
+<div class="card-head">
+<div>
+<div class="card-title">
+Daftar peminjaman 
+<span class="badge gray">
+${loans.length}
+</span>
+</div>
+<div class="card-subtitle">
+Setiap pengembalian otomatis masuk ke transaksi pemasukan
+</div>
+</div>
+<button class="button primary small" data-action="newLoan">
+<i class="fa-solid fa-plus">
+</i>
+ Catat pinjaman
+</button>
+</div>
+${
+  loans.length
+    ? `
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>
+Kode
+</th>
+<th>
+Tanggal
+</th>
+<th>
+Peminjam
+</th>
+<th>
+Jumlah awal
+</th>
+<th>
+Terbayar
+</th>
+<th>
+Sisa
+</th>
+<th>
+Keterangan
+</th>
+<th>
+Status
+</th>
+<th>
+Aksi
+</th>
+</tr>
+</thead>
+<tbody>
+${loans
+  .map(
+    (x) => `
+<tr>
+<td>
+<span class="code">
+${esc(x.kode)}
+</span>
+</td>
+<td>
+${esc(x.tanggal)}
+</td>
+<td>
+<b>
+${esc(x.peminjam)}
+</b>
+</td>
+<td>
+${money(x.jumlah)}
+</td>
+<td class="money-in">
+${money(x.terbayar)}
+</td>
+<td class="money-out">
+${money(Math.max(0, x.jumlah - x.terbayar))}
+</td>
+<td>
+${esc(x.keterangan)}
+</td>
+<td>
+<span class="badge ${x.status === "Lunas" ? "" : "red"}
+">
+${esc(x.status)}
+</span>
+</td>
+<td>
+<div class="actions">
+${
+  x.status !== "Lunas"
+    ? `
+<button class="button small soft" data-action="repayLoan" data-id="${x.id}
+">
+Bayar
+</button>
+`
+    : ""
+}
+<button class="action-icon" data-action="deleteLoan" data-id="${x.id}
+">
+<i class="fa-regular fa-trash-can">
+</i>
+</button>
+</div>
+</td>
+</tr>
+`,
+  )
+  .join("")}
+</tbody>
+</table>
+</div>
+`
+    : `
+<div class="empty">
+Belum ada catatan peminjaman.
+</div>
+`
+}
+</article>
+`;
+  }
+  function renderCalendar(root) {
+    const y = state.month.getFullYear(),
+      m = state.month.getMonth(),
+      first = new Date(y, m, 1),
+      start = new Date(y, m, 1 - first.getDay()),
+      days = 42,
+      monthName = new Intl.DateTimeFormat("id-ID", {
+        month: "long",
+        year: "numeric",
+      }).format(first),
+      tx = state.data.transactions;
+    let cells = "";
+    for (let i = 0; i < days; i++) {
+      const d = new Date(start);
+      d.setDate(start.getDate() + i);
+      const iso = isoDate(d),
+        events = tx.filter((x) => x.tanggal === iso);
+      cells += `
+<div class="day-cell ${d.getMonth() === m ? "" : "muted"}
+" data-action="calendarDay" data-date="${iso}
+">
+<div class="day-number ${iso === isoDate(new Date()) ? "today" : ""}
+">
+<span>
+${d.getDate()}
+</span>
+</div>
+<div class="day-events">
+${events
+  .slice(0, 3)
+  .map(
+    (x) => `
+<div class="day-event ${x.jenis === "keluar" ? "keluar" : ""}
+${state.ruang === "umroh" ? "umroh" : ""}
+" title="${esc(x.keterangan)}
+">
+${esc(x.kategori)} · ${money(x.jumlah)}
+</div>
+`,
+  )
+  .join("")}
+</div>
+</div>
+`;
+    }
+    root.innerHTML = `
+<article class="card calendar-card">
+<div class="calendar-toolbar">
+<button class="icon-button" data-action="monthPrev">
+<i class="fa-solid fa-chevron-left">
+</i>
+</button>
+<button class="icon-button" data-action="monthNext">
+<i class="fa-solid fa-chevron-right">
+</i>
+</button>
+<button class="button primary small" data-action="newTransaction">
+<i class="fa-solid fa-plus">
+</i>
+ Catat transaksi
+</button>
+<h2>
+${monthName}
+</h2>
+<button class="button small" data-action="monthToday">
+Hari ini
+</button>
+</div>
+<div class="calendar-grid">
+${["Min", "Sen", "Sel", "Rab", "Kam", "Jum", "Sab"]
+  .map(
+    (x) => `
+<div class="weekday">
+${x}
+</div>
+`,
+  )
+  .join("")}${cells}
+</div>
+</article>
+<div class="card-subtitle" style="margin:10px 4px">
+Pilih tanggal untuk menambahkan catatan keuangan pada hari tersebut.
+</div>
+`;
+  }
+  function renderStatistics(root) {
+    const ms = monthlySeries(),
+      tx = state.data.transactions,
+      ins = tx
+        .filter((x) => x.jenis === "masuk" && !isRepaymentTransaction(x))
+        .reduce((s, x) => s + Number(x.jumlah), 0),
+      outs = tx
+        .filter((x) => x.jenis === "keluar")
+        .reduce((s, x) => s + Number(x.jumlah), 0),
+      categories = {};
+    tx.filter((x) => x.jenis === "keluar").forEach(
+      (x) =>
+        (categories[x.kategori] =
+          (categories[x.kategori] || 0) + Number(x.jumlah)),
+    );
+    const top = Object.entries(categories)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5);
+    const rate = ins ? Math.round(((ins - outs) / ins) * 100) : 0;
+    root.innerHTML = `
+<div class="grid insight-grid" style="margin-bottom:16px">
+<article class="card insight">
+<span>
+Rasio tabungan bersih
+</span>
+<b>
+${rate}%
+</b>
+<span>
+Saldo bersih dibanding total pemasukan
+</span>
+</article>
+<article class="card insight">
+<span>
+Rata-rata pengeluaran / bulan
+</span>
+<b>
+${money(ms.expense.reduce((a, b) => a + b, 0) / 12)}
+</b>
+<span>
+Rata-rata 12 bulan terakhir
+</span>
+</article>
+<article class="card insight">
+<span>
+Kategori pengeluaran tertinggi
+</span>
+<b>
+${top.length ? esc(top[0][0]) : "—"}
+</b>
+<span>
+${top.length ? money(top[0][1]) : "Belum ada data"}
+</span>
+</article>
+</div>
+<div class="grid charts-grid">
+<article class="card chart-card">
+<div class="card-head">
+<div>
+<div class="card-title">
+Tren pemasukan & pengeluaran
+</div>
+<div class="card-subtitle">
+Pergerakan 12 bulan terakhir
+</div>
+</div>
+</div>
+<div class="chart-box tall">
+<canvas id="lineChart">
+</canvas>
+</div>
+</article>
+<article class="card chart-card">
+<div class="card-head">
+<div>
+<div class="card-title">
+Pengeluaran per kategori
+</div>
+<div class="card-subtitle">
+Proporsi seluruh pengeluaran
+</div>
+</div>
+</div>
+<div class="chart-box tall">
+<canvas id="pieChart">
+</canvas>
+</div>
+</article>
+<article class="card chart-card">
+<div class="card-head">
+<div>
+<div class="card-title">
+Perbandingan per bulan
+</div>
+<div class="card-subtitle">
+Pemasukan, pengeluaran, dan saldo bersih
+</div>
+</div>
+</div>
+<div class="chart-box tall">
+<canvas id="barChart">
+</canvas>
+</div>
+</article>
+<article class="card chart-card">
+<div class="card-head">
+<div>
+<div class="card-title">
+Profil kategori pengeluaran
+</div>
+<div class="card-subtitle">
+Perbandingan lima kategori teratas
+</div>
+</div>
+</div>
+<div class="chart-box tall">
+<canvas id="radarChart">
+</canvas>
+</div>
+</article>
+<article class="card chart-card">
+<div class="card-head">
+<div>
+<div class="card-title">
+Komposisi radial kategori
+</div>
+<div class="card-subtitle">
+Besaran pengeluaran terhadap kategori lain
+</div>
+</div>
+</div>
+<div class="chart-box tall">
+<canvas id="radialChart">
+</canvas>
+</div>
+</article>
+</div>
+`;
+    makeChart("lineChart", {
+      type: "line",
+      data: {
+        labels: ms.labels,
+        datasets: [
+          {
+            label: "Pemasukan",
+            data: ms.income,
+            borderColor: "#566afa",
+            backgroundColor: "#566afa18",
+            fill: true,
+            tension: 0.35,
+          },
+          {
+            label: "Pengeluaran",
+            data: ms.expense,
+            borderColor: "#fa8465",
+            backgroundColor: "#fa846518",
+            fill: true,
+            tension: 0.35,
+          },
+          {
+            label: "Pengembalian pinjaman",
+            data: ms.repayments,
+            borderColor: "#24b88a",
+            backgroundColor: "#24b88a18",
+            fill: true,
+            tension: 0.35,
+          },
+        ],
+      },
+      options: chartOptions(),
+    });
+    const colors = [
+      "#586bfa",
+      "#24b88a",
+      "#f49b48",
+      "#d6659f",
+      "#8972e8",
+      "#51a9d8",
+    ];
+    makeChart("pieChart", {
+      type: "doughnut",
+      data: {
+        labels: top.length ? top.map((x) => x[0]) : ["Belum ada data"],
+        datasets: [
+          {
+            data: top.length ? top.map((x) => x[1]) : [1],
+            backgroundColor: colors,
+            borderWidth: 0,
+          },
+        ],
+      },
+      options: {
+        ...chartOptions(),
+        plugins: {
+          legend: {
+            position: "bottom",
+            labels: { usePointStyle: true, boxWidth: 7, font: { size: 10 } },
+          },
+        },
+      },
+    });
+    makeChart("barChart", {
+      type: "bar",
+      data: {
+        labels: ms.labels,
+        datasets: [
+          {
+            label: "Pemasukan",
+            data: ms.income,
+            backgroundColor: "#586bfa",
+            borderRadius: 4,
+          },
+          {
+            label: "Pengeluaran",
+            data: ms.expense,
+            backgroundColor: "#f49b48",
+            borderRadius: 4,
+          },
+          {
+            label: "Pengembalian pinjaman",
+            data: ms.repayments,
+            backgroundColor: "#24b88a",
+            borderRadius: 4,
+          },
+          {
+            label: "Saldo",
+            data: ms.income.map(
+              (v, i) => v + ms.repayments[i] - ms.expense[i],
+            ),
+            backgroundColor: "#24b88a",
+            borderRadius: 4,
+          },
+        ],
+      },
+      options: chartOptions(),
+    });
+    makeChart("radarChart", {
+      type: "radar",
+      data: {
+        labels: top.length ? top.map((x) => x[0]) : ["Belum ada data"],
+        datasets: [
+          {
+            label: "Pengeluaran",
+            data: top.length ? top.map((x) => x[1]) : [0],
+            borderColor: "#586bfa",
+            backgroundColor: "#586bfa24",
+            pointBackgroundColor: "#586bfa",
+          },
+        ],
+      },
+      options: {
+        ...chartOptions(),
+        scales: {
+          r: {
+            beginAtZero: true,
+            ticks: { display: false },
+            grid: { color: "#edf0f5" },
+            pointLabels: { font: { size: 10 } },
+          },
+        },
+      },
+    });
+    makeChart("radialChart", {
+      type: "polarArea",
+      data: {
+        labels: top.length ? top.map((x) => x[0]) : ["Belum ada data"],
+        datasets: [
+          {
+            data: top.length ? top.map((x) => x[1]) : [0],
+            backgroundColor: colors,
+            borderWidth: 0,
+          },
+        ],
+      },
+      options: {
+        ...chartOptions(),
+        scales: {
+          r: {
+            beginAtZero: true,
+            ticks: { display: false },
+            grid: { color: "#edf0f5" },
+          },
+        },
+      },
+    });
+  }
+  function renderReports(root) {
+    const tx = state.data.transactions,
+      total = tx.reduce((s, x) => s + Number(x.jumlah), 0);
+    root.innerHTML = `
+<div class="grid insight-grid" style="margin-bottom:16px">
+<article class="card insight">
+<span>
+Jumlah transaksi
+</span>
+<b>
+${tx.length}
+</b>
+</article>
+<article class="card insight">
+<span>
+Jumlah arus uang tercatat
+</span>
+<b>
+${money(total)}
+</b>
+</article>
+<article class="card insight">
+<span>
+Pinjaman aktif
+</span>
+<b>
+${state.data.summary.openLoans} · ${money(state.data.summary.outstanding)}
+</b>
+</article>
+</div>
+<article class="card">
+<div class="card-head">
+<div>
+<div class="card-title">
+Ekspor rekap keuangan
+</div>
+<div class="card-subtitle">
+Unduh transaksi dan daftar pinjaman untuk ${state.ruang === "tabungan" ? "Tabungan Bersama" : "Umroh Bersama"}.
+</div>
+</div>
+</div>
+<div style="padding:17px 20px 22px">
+<div class="report-actions">
+<button class="button primary" data-action="export" data-format="xlsx">
+<i class="fa-solid fa-file-excel">
+</i>
+ Unduh XLSX
+</button>
+<button class="button" data-action="export" data-format="pdf">
+<i class="fa-solid fa-file-pdf">
+</i>
+ Unduh PDF
+</button>
+</div>
+<p class="card-subtitle" style="margin-top:15px">
+File memuat ringkasan transaksi, kategori, peminjam, status pelunasan, dan sisa pinjaman. Grafik statistik tersedia pada menu Statistik.
+</p>
+</div>
+</article>
+<article class="card section-gap">
+<div class="card-head">
+<div>
+<div class="card-title">
+Pratinjau transaksi
+</div>
+<div class="card-subtitle">
+${tx.length} catatan tersedia untuk ekspor
+</div>
+</div>
+</div>
+${transactionTable(tx.slice(0, 8), false)}
+</article>
+`;
+  }
+  function renderUsers(root) {
+    const users = state.data.users || [];
+    root.innerHTML = `
+<article class="card table-card">
+<div class="card-head">
+<div>
+<div class="card-title">
+Pengguna 
+<span class="badge gray">
+${users.length}
+</span>
+</div>
+<div class="card-subtitle">
+Akun yang dapat mencatat transaksi
+</div>
+</div>
+<button class="button primary small" data-action="newUser">
+<i class="fa-solid fa-user-plus">
+</i>
+ Tambah pengguna
+</button>
+</div>
+${
+  users.length
+    ? `
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>
+ID
+</th>
+<th>
+Nama
+</th>
+<th>
+Username
+</th>
+<th>
+Peran
+</th>
+<th>
+Status
+</th>
+<th>
+Aksi
+</th>
+</tr>
+</thead>
+<tbody>
+${users
+  .map(
+    (x) => `
+<tr>
+<td>
+${x.id}
+</td>
+<td>
+<b>
+${esc(x.nama)}
+</b>
+</td>
+<td>
+${esc(x.username)}
+</td>
+<td>
+${esc(x.role)}
+</td>
+<td>
+<span class="badge ${x.aktif ? "" : "red"}
+">
+${x.aktif ? "Aktif" : "Nonaktif"}
+</span>
+</td>
+<td>
+<div class="actions">
+<button class="action-icon" data-action="editUser" data-id="${x.id}
+">
+<i class="fa-solid fa-pen">
+</i>
+</button>
+${
+  Number(x.id) !== Number(state.user.id)
+    ? `
+<button class="action-icon" data-action="deleteUser" data-id="${x.id}
+">
+<i class="fa-regular fa-trash-can">
+</i>
+</button>
+`
+    : ""
+}
+</div>
+</td>
+</tr>
+`,
+  )
+  .join("")}
+</tbody>
+</table>
+</div>
+`
+    : `
+<div class="empty">
+Belum ada pengguna.
+</div>
+`
+}
+</article>
+`;
+  }
+  function renderSettings(root) {
+    root.innerHTML = `
+<article class="card" style="max-width:620px">
+<div class="card-head">
+<div>
+<div class="card-title">
+Ubah kata sandi
+</div>
+<div class="card-subtitle">
+Gunakan kata sandi minimal 8 karakter.
+</div>
+</div>
+</div>
+<form id="passwordForm" style="padding:8px 20px 20px">
+<div class="field">
+<label>
+Kata sandi saat ini
+</label>
+<input name="passwordLama" type="password" required>
+</div>
+<div class="field">
+<label>
+Kata sandi baru
+</label>
+<input name="passwordBaru" type="password" minlength="8" required>
+</div>
+<button class="button primary">
+Simpan kata sandi
+</button>
+</form>
+</article>
+<div class="card-subtitle" style="margin:12px 2px">
+Versi ${"1.0.0"} · Zona waktu mengikuti pengaturan project Apps Script.
+</div>
+`;
+  }
+  function monthlySeries() {
+    const now = new Date(),
+      labels = [],
+      income = [],
+      repayments = [],
+      expense = [];
+    for (let i = 11; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1),
+        key = isoDate(d).slice(0, 7);
+      labels.push(
+        new Intl.DateTimeFormat("id-ID", { month: "short" }).format(d),
+      );
+      const a = state.data.transactions.filter(
+        (x) => String(x.tanggal).slice(0, 7) === key,
+      );
+      income.push(
+        a
+          .filter(
+            (x) => x.jenis === "masuk" && !isRepaymentTransaction(x),
+          )
+          .reduce((s, x) => s + Number(x.jumlah), 0),
+      );
+      repayments.push(
+        a
+          .filter(isRepaymentTransaction)
+          .reduce((s, x) => s + Number(x.jumlah), 0),
+      );
+      expense.push(
+        a
+          .filter((x) => x.jenis === "keluar")
+          .reduce((s, x) => s + Number(x.jumlah), 0),
+      );
+    }
+    return { labels, income, repayments, expense };
+  }
+  function isRepaymentTransaction(transaction) {
+    return (
+      transaction.jenis === "masuk" &&
+      transaction.kategori === "Pengembalian Pinjaman"
+    );
+  }
+  function chartOptions() {
+    return {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { intersect: false, mode: "index" },
+      plugins: {
+        legend: {
+          position: "bottom",
+          labels: {
+            usePointStyle: true,
+            boxWidth: 7,
+            padding: 16,
+            font: { size: 10 },
+          },
+        },
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          ticks: { font: { size: 10 }, color: "#8994a6" },
+        },
+        y: {
+          beginAtZero: true,
+          grid: { color: "#eef0f4" },
+          ticks: {
+            font: { size: 9 },
+            color: "#8994a6",
+            callback: (v) =>
+              new Intl.NumberFormat("id-ID", { notation: "compact" }).format(v),
+          },
+        },
+      },
+    };
+  }
+  function makeChart(id, cfg) {
+    const c = $("#" + id);
+    if (c && window.Chart) state.charts.push(new Chart(c, cfg));
+  }
+  function isoDate(d) {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }
+  function openModal(title, subtitle, body, submitText = "Simpan") {
+    const host = $("#modalHost");
+    host.innerHTML = `
+<div class="modal-backdrop" data-action="backdrop">
+<section class="modal">
+<header class="modal-head">
+<div>
+<h2>
+${title}
+</h2>
+<p>
+${subtitle}
+</p>
+</div>
+<button class="icon-button" data-action="closeModal">
+<i class="fa-solid fa-xmark">
+</i>
+</button>
+</header>
+<form id="modalForm">
+<div class="modal-body">
+${body}
+<div class="error-text" id="modalError">
+</div>
+</div>
+<footer class="modal-foot">
+<button type="button" class="button" data-action="closeModal">
+Batal
+</button>
+<button class="button primary">
+${submitText}
+</button>
+</footer>
+</form>
+</section>
+</div>
+`;
+  }
+  function field(
+    label,
+    name,
+    value = "",
+    type = "text",
+    required = true,
+    extra = "",
+  ) {
+    return `
+<div class="field">
+<label>
+${label}
+</label>
+<input name="${name}" type="${type}" value="${esc(value)}" ${required ? "required" : ""} ${extra}>
+</div>
+`;
+  }
+  function transactionModal(item = null, date = isoDate(new Date())) {
+    const x = item || {},
+      cats = state.data.categories;
+    openModal(
+      x.id ? "Ubah transaksi" : "Catat transaksi",
+      `Ruang ${state.ruang === "tabungan" ? "Tabungan Bersama" : "Umroh Bersama"}`,
+      `
+<input type="hidden" name="id" value="${x.id || ""}">
+<input type="hidden" name="ruang" value="${state.ruang}">
+<div class="form-grid">
+${field("Tanggal", "tanggal", x.tanggal || date, "date")}
+<div class="field">
+<label>
+Jenis transaksi
+</label>
+<select name="jenis">
+<option value="masuk" ${x.jenis !== "keluar" ? "selected" : ""}>
+Uang masuk
+</option>
+<option value="keluar" ${x.jenis === "keluar" ? "selected" : ""}>
+Uang keluar
+</option>
+</select>
+</div>
+<div class="field">
+<label>
+Kategori
+</label>
+<select name="kategori" required>
+${cats
+  .map(
+    (c) => `
+<option ${x.kategori === c ? "selected" : ""}>
+${esc(c)}
+</option>
+`,
+  )
+  .join("")}
+</select>
+</div>
+${field("Jumlah (Rp)", "jumlah", x.jumlah || "", "number", true, 'min="1" step="1" placeholder="Contoh: 50000"')}${field("Dicatat oleh", "dicatatOleh", x.dicatatOleh || state.user.nama)}
+<div>
+</div>
+<div class="field" style="grid-column:1/-1">
+<label>
+Keterangan
+</label>
+<textarea name="keterangan" maxlength="500" placeholder="Catatan singkat transaksi">
+${esc(x.keterangan || "")}
+</textarea>
+</div>
+</div>
+`,
+      "Simpan catatan",
+    );
+    $("#modalForm").onsubmit = async (e) => {
+      e.preventDefault();
+      const d = Object.fromEntries(new FormData(e.currentTarget));
+      d.jumlah = Number(d.jumlah);
+      try {
+        await call("saveTransaction", d);
+        closeModal();
+        toast("Transaksi berhasil disimpan.");
+        loadData();
+      } catch (x) {
+        $("#modalError").textContent = x.message;
+      }
+    };
+  }
+  function bulkTransactionRow(index) {
+    const categories = state.data.categories
+      .map((category) => `<option value="${esc(category)}">${esc(category)}</option>`)
+      .join("");
+    return `
+<div class="bulk-row">
+  <div class="bulk-row-head">
+    <strong>Transaksi ${index}</strong>
+    <button class="button small danger-outline" type="button" data-action="removeBulkRow" aria-label="Hapus transaksi ${index}">
+      <i class="fa-solid fa-trash"></i><span>Hapus</span>
+    </button>
+  </div>
+  <div class="bulk-row-grid">
+    <label class="field">Tanggal<input class="bulk-date" type="date" value="${isoDate(new Date())}" required></label>
+    <label class="field">Jenis
+      <select class="bulk-type" required><option value="masuk">Uang masuk</option><option value="keluar">Uang keluar</option></select>
+    </label>
+    <label class="field">Kategori<select class="bulk-category" required>${categories}</select></label>
+    <label class="field">Jumlah (Rp)<input class="bulk-amount" type="number" min="1" step="1" placeholder="Contoh: 50000" required></label>
+    <label class="field bulk-note-field">Keterangan<textarea class="bulk-note" maxlength="500" placeholder="Catatan singkat (opsional)"></textarea></label>
+  </div>
+</div>`;
+  }
+  function refreshBulkRowControls() {
+    const rows = $$(".bulk-row", $("#modalForm"));
+    rows.forEach((row, index) => {
+      row.querySelector(".bulk-row-head strong").textContent =
+        `Transaksi ${index + 1}`;
+      const removeButton = row.querySelector('[data-action="removeBulkRow"]');
+      removeButton.disabled = rows.length === 1;
+      removeButton.setAttribute("aria-label", `Hapus transaksi ${index + 1}`);
+    });
+  }
+  function bulkTransactionModal() {
+    openModal(
+      "Catat transaksi massal",
+      "Isi beberapa transaksi sekaligus. Setiap baris akan mendapat kode transaksi sendiri.",
+      `
+<div class="bulk-toolbar">
+  <span>Ruang: <b>${state.ruang === "tabungan" ? "Tabungan Bersama" : "Umroh Bersama"}</b></span>
+  <button class="button small soft" type="button" data-action="addBulkRow"><i class="fa-solid fa-plus"></i> Tambah baris</button>
+</div>
+<div class="bulk-rows" id="bulkRows">${bulkTransactionRow(1)}</div>
+`,
+      "Simpan semua",
+    );
+    $("#modalHost .modal").classList.add("wide");
+    refreshBulkRowControls();
+    $("#modalForm").onsubmit = async (event) => {
+      event.preventDefault();
+      const transactions = $$(".bulk-row", event.currentTarget).map((row) => ({
+        tanggal: row.querySelector(".bulk-date").value,
+        jenis: row.querySelector(".bulk-type").value,
+        kategori: row.querySelector(".bulk-category").value,
+        jumlah: Number(row.querySelector(".bulk-amount").value),
+        keterangan: row.querySelector(".bulk-note").value,
+        dicatatOleh: state.user.nama,
+      }));
+      try {
+        const result = await call("saveTransactionsBulk", {
+          ruang: state.ruang,
+          transactions,
+        });
+        closeModal();
+        toast(`${result.count} transaksi berhasil disimpan.`);
+        loadData();
+      } catch (error) {
+        $("#modalError").textContent = error.message;
+      }
+    };
+  }
+  function loanModal(item = null) {
+    const x = item || {};
+    openModal(
+      "Catat peminjaman",
+      "Masukkan detail pinjaman dan nama peminjam.",
+      `
+<input type="hidden" name="id" value="${x.id || ""}">
+<input type="hidden" name="ruang" value="${state.ruang}">
+<div class="form-grid">
+${field("Tanggal pinjam", "tanggal", x.tanggal || isoDate(new Date()), "date")}${field("Nama peminjam", "peminjam", x.peminjam || "")}${field("Jumlah pinjaman (Rp)", "jumlah", x.jumlah || "", "number", true, 'min="1" step="1"')}${field("Dicatat oleh", "dicatatOleh", state.user.nama)}
+<div class="field" style="grid-column:1/-1">
+<label>
+Keterangan / tujuan pinjaman
+</label>
+<textarea name="keterangan" required maxlength="500" placeholder="Contoh: Pinjaman untuk keperluan keluarga">
+${esc(x.keterangan || "")}
+</textarea>
+</div>
+</div>
+`,
+    );
+    $("#modalForm").onsubmit = async (e) => {
+      e.preventDefault();
+      const d = Object.fromEntries(new FormData(e.currentTarget));
+      d.jumlah = Number(d.jumlah);
+      try {
+        await call("saveLoan", d);
+        closeModal();
+        toast("Pinjaman berhasil dicatat.");
+        loadData();
+      } catch (x) {
+        $("#modalError").textContent = x.message;
+      }
+    };
+  }
+  function repayModal(loan) {
+    const remaining = Number(loan.jumlah) - Number(loan.terbayar);
+    openModal(
+      "Catat pengembalian",
+      `${esc(loan.peminjam)} · Sisa ${money(remaining)}`,
+      `
+<input type="hidden" name="id" value="${loan.id}">
+${field("Tanggal pengembalian", "tanggal", isoDate(new Date()), "date")}${field(
+        "Jumlah pengembalian (Rp)",
+        "jumlah",
+        remaining,
+        "number",
+        true,
+        `min="1" max="${remaining}" step="1"`,
+      )}`,
+      "Simpan pembayaran",
+    );
+    $("#modalForm").onsubmit = async (e) => {
+      e.preventDefault();
+      const d = Object.fromEntries(new FormData(e.currentTarget));
+      d.jumlah = Number(d.jumlah);
+      try {
+        await call("repayLoan", d);
+        closeModal();
+        toast("Pengembalian berhasil dicatat.");
+        loadData();
+      } catch (x) {
+        $("#modalError").textContent = x.message;
+      }
+    };
+  }
+  function userModal(item = null) {
+    const x = item || {};
+    openModal(
+      x.id ? "Ubah pengguna" : "Tambah pengguna",
+      "Pengguna aktif dapat dipilih sebagai pencatat transaksi.",
+      `
+<input type="hidden" name="id" value="${x.id || ""}">
+<div class="form-grid">
+${field("Nama lengkap", "nama", x.nama || "")}${field("Username", "username", x.username || "")}${field(x.id ? "Kata sandi baru (opsional)" : "Kata sandi", "password", "", "password", !x.id, x.id ? 'placeholder="Kosongkan jika tidak diubah"' : 'minlength="8"')}
+<div class="field">
+<label>
+Status akun
+</label>
+<select name="aktif">
+<option value="true" ${x.aktif !== false ? "selected" : ""}>
+Aktif
+</option>
+<option value="false" ${x.aktif === false ? "selected" : ""}>
+Nonaktif
+</option>
+</select>
+</div>
+</div>
+`,
+    );
+    $("#modalForm").onsubmit = async (e) => {
+      e.preventDefault();
+      const d = Object.fromEntries(new FormData(e.currentTarget));
+      d.aktif = d.aktif === "true";
+      try {
+        await call("saveUser", d);
+        closeModal();
+        toast("Data pengguna berhasil disimpan.");
+        loadData();
+      } catch (z) {
+        $("#modalError").textContent = z.message;
+      }
+    };
+  }
+  function closeModal() {
+    $("#modalHost").innerHTML = "";
+  }
+  async function doExport(format) {
+    toast("Menyiapkan file…");
+    try {
+      const result = await call("export", { ruang: state.ruang, format });
+      const a = document.createElement("a");
+      a.href = `data:${result.mime};
+base64,${result.data}`;
+      a.download = result.name;
+      a.click();
+      toast("File berhasil diunduh.");
+    } catch (e) {
+      apiError(e);
+    }
+  }
+  document.addEventListener("submit", (e) => {
+    if (e.target.id === "passwordForm") {
+      e.preventDefault();
+      const d = Object.fromEntries(new FormData(e.target));
+      call("changePassword", d)
+        .then(() => {
+          e.target.reset();
+          toast("Kata sandi berhasil diubah.");
+        })
+        .catch(apiError);
+    }
+  });
+  document.addEventListener("input", (e) => {
+    if (e.target.id === "txSearch") {
+      const pos = e.target.selectionStart;
+      state.search = e.target.value;
+      renderPage();
+      const next = $("#txSearch");
+      next.focus();
+      next.setSelectionRange(pos, pos);
+    }
+  });
+  document.addEventListener("change", (e) => {
+    if (e.target.id === "txMonth") {
+      state.filterMonth = e.target.value || "all";
+      renderPage();
+    }
+  });
+  document.addEventListener("click", async (e) => {
+    const b = e.target.closest("[data-action],[data-page]");
+    if (!b) return;
+    const act = b.dataset.action;
+    if (b.dataset.page) {
+      setPage(b.dataset.page, b.dataset.ruang || state.ruang);
+      return;
+    }
+    try {
+      switch (act) {
+        case "toggleGroup": {
+          const target = $("#group-" + b.dataset.group),
+            open = target.classList.contains("hidden");
+          $$(".nav-children").forEach((x) => x.classList.add("hidden"));
+          $$(".nav-parent").forEach((x) => x.classList.remove("open"));
+          if (open) {
+            target.classList.remove("hidden");
+            b.classList.add("open");
+          }
+          break;
+        }
+        case "openNav":
+          $("#sidebar").classList.add("open");
+          break;
+        case "closeNav":
+          $("#sidebar").classList.remove("open");
+          break;
+        case "logout":
+          logout();
+          break;
+        case "newTransaction":
+          transactionModal();
+          break;
+        case "newBulkTransaction":
+          bulkTransactionModal();
+          break;
+        case "addBulkRow": {
+          const rows = $$(".bulk-row", $("#modalForm"));
+          if (rows.length >= 100) {
+            toast("Maksimal 100 transaksi dalam satu kali simpan.", true);
+            break;
+          }
+          $("#bulkRows").insertAdjacentHTML(
+            "beforeend",
+            bulkTransactionRow(rows.length + 1),
+          );
+          refreshBulkRowControls();
+          break;
+        }
+        case "removeBulkRow":
+          if ($$(".bulk-row", $("#modalForm")).length > 1) {
+            b.closest(".bulk-row").remove();
+            refreshBulkRowControls();
+          }
+          break;
+        case "editTransaction":
+          transactionModal(
+            state.data.transactions.find(
+              (x) => Number(x.id) === Number(b.dataset.id),
+            ),
+          );
+          break;
+        case "deleteTransaction":
+          if (confirm("Hapus transaksi ini?")) {
+            await call("deleteTransaction", { id: b.dataset.id });
+            toast("Transaksi dihapus.");
+            loadData();
+          }
+          break;
+        case "newLoan":
+          loanModal();
+          break;
+        case "repayLoan":
+          repayModal(
+            state.data.loans.find((x) => Number(x.id) === Number(b.dataset.id)),
+          );
+          break;
+        case "deleteLoan":
+          if (
+            confirm(
+              "Hapus data pinjaman ini? Riwayat uang keluar tetap tersimpan sebagai transaksi.",
+            )
+          ) {
+            await call("deleteLoan", { id: b.dataset.id });
+            toast("Data pinjaman dihapus.");
+            loadData();
+          }
+          break;
+        case "calendarDay":
+          transactionModal(null, b.dataset.date);
+          break;
+        case "monthPrev":
+          state.month = new Date(
+            state.month.getFullYear(),
+            state.month.getMonth() - 1,
+            1,
+          );
+          renderPage();
+          break;
+        case "monthNext":
+          state.month = new Date(
+            state.month.getFullYear(),
+            state.month.getMonth() + 1,
+            1,
+          );
+          renderPage();
+          break;
+        case "monthToday":
+          state.month = new Date(
+            new Date().getFullYear(),
+            new Date().getMonth(),
+            1,
+          );
+          renderPage();
+          break;
+        case "export":
+          doExport(b.dataset.format);
+          break;
+        case "newUser":
+          userModal();
+          break;
+        case "editUser":
+          userModal(
+            state.data.users.find((x) => Number(x.id) === Number(b.dataset.id)),
+          );
+          break;
+        case "deleteUser":
+          if (confirm("Hapus pengguna ini?")) {
+            await call("deleteUser", { id: b.dataset.id });
+            toast("Pengguna dihapus.");
+            loadData();
+          }
+          break;
+        case "closeModal":
+          closeModal();
+          break;
+        case "backdrop":
+          if (e.target === b) closeModal();
+          break;
+      }
+    } catch (x) {
+      apiError(x);
+    }
+  });
+  // Pulihkan sesi lewat aksi bootstrap; token diperiksa di server.
+  if (state.token) {
+    state.user = { nama: "Memuat…", role: "pengguna" };
+    $("#loginView").classList.add("hidden");
+    $("#appView").classList.remove("hidden");
+    call("bootstrap", { ruang: state.ruang })
+      .then((d) => showApp(d.user))
+      .catch(() => logout(false));
+  } else showLogin();
+</script>

@@ -1,0 +1,18 @@
+aplikasi web tersebut berjudul REKAP KEUANGAN TABUNGAN BERSAMA "ZEXX"
+
+okei saya akan membuat aplikasi sederhana menggunakan google script dan performa yang ringan untuk proses simpan dan ubah data atau hapus, yang dimana maksimal berjumlah 5 file untuk aplikasi google scrip saya, aplikasi tersebut memiliki login yang dimana hanya admin pengguna dan ada fitur nambah pengguna, aplikasi tersebut untuk evaluasi pemasukan tabungan dan pengeluaran tabungan saya sendiri sehingga bisa ke trackrecord, untuk rekap saya yaitu bulanan setiap bulan saya memasukan catatan bulanan dari history rekening saya, tambahkan fitur untuk category seperti jajan, nabung, dll. fitur pencatatan juga bisa memilih nama sebagai pencatatan yang mengambil siapa yang memasukan siapa dan pastinya juga ada tanggal recordnya. Jumlah total uang keluar masuk, data peminjaman uang, catatan seluruh transaksi keluar masuk, total bulanan, total uang yang ada, total peminjaman. tambahakan keterangan saat uang dipinjam sehingga biar lebih mudah dalam melihat data atau table peminjam beserta status pinjam. dalam peminjam ada keterangan di dashboard yang belum dikembalikan per data pinjam serta total jumlah uang yang dipinjam jika belum maka tetap tampil dengan kekurangan atau uang yang harus dikembalikan. ada menu rekab keuangan yang dimana bisa export data dengan export file PDF serta format xlsx yang dimana didalamnya juga ada statistic grafik.
+
+tambahkan fitur menu Kalender sepert contoh gambar saya, yang dimana jika tanggal atau hari tersebu maka akan memnculkan modal seperti screen shot saya yang didalam formnya yaitu keungan masuk atau keluar
+
+
+untuk dashboard ada fitur atau menu untuk menambah akun serta bisa edit, hapus. Untuk penyimpanan data primary key berbentuk angka sehingga tidak menggunakan kode yang rumit sehingga lebih ringan untuk aplikasi membaca mulai 000 dan seterusnya ya sesuaikan untuk transaksi keuangan deng format awalah TX-000 dan seterusnya
+
+pada aplikasi tersebut ada menu statistic yang dimana untuk melihat seperti grafik batang, pie, line, Radar, Radial, dan data bulanan dalam bentuk line yang interaktif, terapkan juga analisis data keuangan saya seperti pemasukan, pengeluaran, penggunaan uang, peminjam, data setiap bulan, perbandingan keuangan, dan lain lain tamabhakan yang lain untuk mendukung statistic. aplikasi saya ini juga focus melihat data pada menu statistic jadi maksimalkan kebutuhan penunjang aplikasi pribadi saya.
+
+ada menu khusus untuk keuagan Umroh Bersama jadi dalam 1 dashboard terdapat 2 yang satu Rekap Keuangan Tabungan yang satunya lagi untuk Rekap Keuangan Umroh, pada sidebar menu buatkan dropdown masing masing dan untuk yang umroh samakan fiturnya dengan Rekap Keuangan Tabungan Bersama, sehingga di sitebar ada 2 dropdown contoh seperti gambar yang saya kirimkan ada menu dropdown sehingga simple dan mudah dalam berpindah
+
+tampilan sesuaikan pada template yang saya berikan seperti contoh dashboard yaitu TailAdmin sehingga fresh icon juga bisa diambil dari font awesome
+
+untuk coding rapikan dan tidak menjadi 1 baris
+
+buatkan juga untuk README sebagai highligjt aplikasi web saya dan buatkan Panduan Instalasi Pengguanaan Aplikasinya 

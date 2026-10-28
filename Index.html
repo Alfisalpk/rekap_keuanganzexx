@@ -1,0 +1,224 @@
+<!doctype html>
+<html>
+  <head>
+    <base target="_top" />
+    <meta charset="utf-8" />
+    <?!= include('Styles'); ?>
+  </head>
+  <body>
+    <section id="loginView" class="login-wrap">
+      <form id="loginForm" class="login-card">
+        <div class="brand-mark">Z</div>
+        <div class="eyebrow">RUANG KEUANGAN PRIBADI</div>
+        <h1>Selamat datang</h1>
+        <p>Masuk untuk melihat rekap keuangan ZEXX.</p>
+        <label>
+          Username
+          <input
+            name="username"
+            required
+            autocomplete="username"
+            placeholder="Username"
+          />
+        </label>
+        <label>
+          Kata sandi
+          <input
+            name="password"
+            type="password"
+            required
+            autocomplete="current-password"
+            placeholder="Kata sandi"
+          />
+        </label>
+        <button class="button primary full" type="submit">
+          Masuk ke aplikasi
+          <i class="fa-solid fa-arrow-right"> </i>
+        </button>
+        <div id="loginError" class="error-text"></div>
+        <p class="login-help">
+          Kredensial awal tampil di Execution log setelah setup. Jika terlewat,
+          jalankan <code>resetAdminPassword()</code> dari editor Apps Script.
+        </p>
+      </form>
+    </section>
+    <div id="appView" class="app-shell hidden">
+      <aside class="sidebar" id="sidebar">
+        <div class="brand">
+          <span class="brand-mark small"> Z </span>
+          <div>
+            <b> ZEXX </b>
+            <small> Keuangan bersama </small>
+          </div>
+          <button class="icon-button mobile-close" data-action="closeNav">
+            <i class="fa-solid fa-xmark"> </i>
+          </button>
+        </div>
+        <div class="nav-label">MENU UTAMA</div>
+        <div class="nav-group">
+          <button
+            class="nav-parent active"
+            data-action="toggleGroup"
+            data-group="tabungan"
+          >
+            <i class="fa-solid fa-piggy-bank"> </i>
+            <span> Tabungan Bersama </span>
+            <i class="fa-solid fa-chevron-down chevron"> </i>
+          </button>
+          <div class="nav-children" id="group-tabungan">
+            <button
+              class="nav-link selected"
+              data-page="dashboard"
+              data-ruang="tabungan"
+            >
+              <i class="fa-solid fa-chart-pie"> </i>
+              Ringkasan
+            </button>
+            <button
+              class="nav-link"
+              data-page="transactions"
+              data-ruang="tabungan"
+            >
+              <i class="fa-solid fa-arrow-right-arrow-left"> </i>
+              Transaksi
+            </button>
+            <button class="nav-link" data-page="loans" data-ruang="tabungan">
+              <i class="fa-solid fa-hand-holding-dollar"> </i>
+              Peminjaman
+            </button>
+            <button class="nav-link" data-page="calendar" data-ruang="tabungan">
+              <i class="fa-regular fa-calendar"> </i>
+              Kalender
+            </button>
+            <button
+              class="nav-link"
+              data-page="statistics"
+              data-ruang="tabungan"
+            >
+              <i class="fa-solid fa-chart-column"> </i>
+              Statistik
+            </button>
+            <button class="nav-link" data-page="reports" data-ruang="tabungan">
+              <i class="fa-regular fa-file-lines"> </i>
+              Rekap & ekspor
+            </button>
+          </div>
+        </div>
+        <div class="nav-group">
+          <button
+            class="nav-parent"
+            data-action="toggleGroup"
+            data-group="umroh"
+          >
+            <i class="fa-solid fa-kaaba"> </i>
+            <span> Umroh Bersama </span>
+            <i class="fa-solid fa-chevron-down chevron"> </i>
+          </button>
+          <div class="nav-children hidden" id="group-umroh">
+            <button class="nav-link" data-page="dashboard" data-ruang="umroh">
+              <i class="fa-solid fa-chart-pie"> </i>
+              Ringkasan
+            </button>
+            <button
+              class="nav-link"
+              data-page="transactions"
+              data-ruang="umroh"
+            >
+              <i class="fa-solid fa-arrow-right-arrow-left"> </i>
+              Transaksi
+            </button>
+            <button class="nav-link" data-page="loans" data-ruang="umroh">
+              <i class="fa-solid fa-hand-holding-dollar"> </i>
+              Peminjaman
+            </button>
+            <button class="nav-link" data-page="calendar" data-ruang="umroh">
+              <i class="fa-regular fa-calendar"> </i>
+              Kalender
+            </button>
+            <button class="nav-link" data-page="statistics" data-ruang="umroh">
+              <i class="fa-solid fa-chart-column"> </i>
+              Statistik
+            </button>
+            <button class="nav-link" data-page="reports" data-ruang="umroh">
+              <i class="fa-regular fa-file-lines"> </i>
+              Rekap & ekspor
+            </button>
+          </div>
+        </div>
+        <div class="nav-label secondary-label">PENGELOLAAN</div>
+        <button class="nav-link admin-only" data-page="users">
+          <i class="fa-solid fa-users"> </i>
+          Pengguna
+        </button>
+        <button class="nav-link" data-page="settings">
+          <i class="fa-solid fa-gear"> </i>
+          Pengaturan
+        </button>
+        <div class="sidebar-foot">
+          <span class="status-dot"> </span>
+          Database tersambung
+        </div>
+      </aside>
+      <main class="main-area">
+        <header class="topbar">
+          <button class="icon-button" data-action="openNav">
+            <i class="fa-solid fa-bars"> </i>
+          </button>
+          <div class="breadcrumb">
+            <span> Ruang kerja </span>
+            <i class="fa-solid fa-chevron-right"> </i>
+            <b id="crumbTitle"> Ringkasan </b>
+          </div>
+          <div class="top-actions">
+            <span class="date-chip">
+              <i class="fa-regular fa-calendar"> </i>
+              <span id="todayLabel"> </span>
+            </span>
+            <div class="user-chip">
+              <span class="avatar" id="userAvatar"> A </span>
+              <span>
+                <b id="userName"> Admin </b>
+                <small id="userRole"> Administrator </small>
+              </span>
+              <button
+                class="icon-button compact"
+                data-action="logout"
+                title="Keluar"
+              >
+                <i class="fa-solid fa-arrow-right-from-bracket"> </i>
+              </button>
+            </div>
+          </div>
+        </header>
+        <section class="content">
+          <div class="page-heading">
+            <div>
+              <div class="eyebrow" id="sectionEyebrow">TABUNGAN BERSAMA</div>
+              <h1 id="pageTitle">Ringkasan keuangan</h1>
+              <p id="pageSubtitle">
+                Pantau arus uang dan perkembangan saldo Anda.
+              </p>
+            </div>
+            <button class="button primary" data-action="newTransaction">
+              <i class="fa-solid fa-plus"> </i>
+              Catat transaksi
+            </button>
+          </div>
+          <div id="pageContent"></div>
+        </section>
+      </main>
+    </div>
+    <div id="modalHost"></div>
+    <div id="loadingOverlay" class="loading-overlay hidden" role="status" aria-live="polite">
+      <div class="loading-card">
+        <span class="loading-spinner"></span>
+        <strong id="loadingMessage">Sedang memuat…</strong>
+        <small>Mohon tunggu sebentar</small>
+      </div>
+    </div>
+    <div id="toastHost" class="toast-host"></div>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/js/all.min.js"></script>
+    <?!= include('App'); ?>
+  </body>
+</html>
