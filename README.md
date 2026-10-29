@@ -7,7 +7,9 @@ Aplikasi pencatatan dan evaluasi keuangan pribadi berbasis Google Apps Script da
 - Dua ruang terpisah dalam satu aplikasi: **Tabungan Bersama** dan **Umroh Bersama**. Transaksi, pinjaman, ringkasan, dan ekspor tidak tercampur antarruang.
 - Login admin/pengguna, penambahan dan pengelolaan pengguna oleh admin, serta ubah kata sandi. Kata sandi disimpan sebagai hash SHA-256 dengan salt acak; sesi berlaku sampai enam jam.
 - Pencatatan transaksi uang masuk/keluar, kategori, keterangan, tanggal transaksi, dan nama pencatat. Transaksi mendapat ID angka berurutan dan kode seperti `TX-001`.
-- Peminjaman dengan nama, tujuan/keterangan, jumlah, total cicilan, status lunas, dan sisa yang belum dikembalikan. Pencairan pinjaman otomatis dicatat sebagai pengeluaran; pengembalian dicatat sebagai pemasukan.
+- Peminjaman dengan nama, tujuan/keterangan, jumlah, total cicilan, status lunas, dan sisa yang belum dikembalikan. Pencairan otomatis dicatat sebagai transaksi keluar; pengembalian dicatat sebagai pemasukan.
+- Menu **Pakai Uang** untuk mencatat pengeluaran kebutuhan bersama, termasuk tanggal, jumlah, keperluan, dan nama anggota yang memakai uang. Catatan ini langsung masuk ke total pengeluaran, statistik, transaksi, dan ekspor.
+- Total pengeluaran memasukkan sisa pinjaman yang belum dikembalikan. Saat pinjaman lunas, kontribusi pinjaman menjadi Rp0; transaksi **Pakai Uang** dan pengeluaran lain tetap dihitung.
 - Ringkasan saldo bersih, pemasukan/pengeluaran total dan bulan ini, serta daftar pinjaman yang masih aktif.
 - Kalender interaktif: pilih tanggal untuk membuka formulir pencatatan transaksi.
 - Indikator loading saat login dan saat aplikasi meminta data ke server.
@@ -55,6 +57,13 @@ Jalankan `setup()` untuk instalasi baru. Jika setup gagal di tengah jalan, Anda 
 5. Klik **Deploy**, selesaikan otorisasi, lalu buka URL Web app.
 6. Masuk dengan akun admin awal dan segera ganti kata sandi melalui menu **Pengaturan**.
 
+### Memperbarui aplikasi yang sudah terpasang
+
+1. Buka project Apps Script yang sudah digunakan aplikasi.
+2. Ganti isi `Code.gs`, `Index.html`, dan `App.html` dengan versi terbaru dari folder ini. `Styles.html` dan spreadsheet tidak perlu diubah untuk menu **Pakai Uang**.
+3. Simpan project, lalu pilih **Deploy → Manage deployments → Edit → New version → Deploy**.
+4. Buka ulang URL web app. Menu **Pakai Uang** tersedia pada ruang Tabungan Bersama dan Umroh Bersama.
+
 ## Panduan penggunaan
 
 ### Catat keuangan
@@ -62,6 +71,7 @@ Jalankan `setup()` untuk instalasi baru. Jika setup gagal di tengah jalan, Anda 
 - Pilih ruang **Tabungan Bersama** atau **Umroh Bersama** dari sidebar. Masing-masing memiliki transaksi, pinjaman, kalender, statistik, dan ekspor sendiri.
 - Klik **Catat transaksi** atau tanggal di menu **Kalender**. Isi tanggal, uang masuk/keluar, kategori, jumlah, pencatat, dan keterangan.
 - Gunakan menu **Transaksi** untuk mencari berdasarkan teks, memfilter bulan, mengubah catatan, atau menghapus transaksi.
+- Gunakan menu **Pakai Uang** pada ruang yang sesuai, lalu pilih **Catat pemakaian**. Isi tanggal, nama anggota yang memakai uang, jumlah, dan keperluannya. Catatan otomatis menjadi pengeluaran kategori **Pakai Uang** dan tampil di transaksi, ringkasan pengeluaran, statistik, serta ekspor.
 - ID transaksi internal berupa angka. Kode yang mudah dibaca memakai awalan `TX-` dan minimal tiga digit; misalnya ID 1 menjadi `TX-001`, ID 1000 menjadi `TX-1000`.
 
 ### Catat pinjaman dan pengembalian
@@ -69,6 +79,7 @@ Jalankan `setup()` untuk instalasi baru. Jika setup gagal di tengah jalan, Anda 
 - Dari **Peminjaman**, pilih **Catat pinjaman**, lalu isi peminjam, tanggal, jumlah, dan tujuan pinjaman.
 - Saat pinjaman dibuat, aplikasi otomatis mencatat uang yang dipinjam sebagai transaksi keluar kategori **Pinjaman**.
 - Tekan **Bayar** untuk mencatat pengembalian penuh atau sebagian. Pengembalian masuk ke transaksi sebagai pemasukan. Kolom sisa dihitung dari jumlah pinjaman dikurangi semua cicilan; status menjadi **Lunas** saat sisa nol.
+- Sisa pinjaman masuk ke total pengeluaran selama belum lunas. Setelah semua dikembalikan, kontribusi pinjaman pada total pengeluaran menjadi Rp0; pemasukan dari pengembalian tetap tercatat di transaksi.
 - Menghapus data pinjaman tidak menghapus jejak transaksi pencairannya. Untuk koreksi histori, periksa transaksi terkait secara terpisah.
 
 ### Statistik dan ekspor
@@ -84,6 +95,6 @@ Jalankan `setup()` untuk instalasi baru. Jika setup gagal di tengah jalan, Anda 
 ## Catatan operasional
 
 - UI memuat Chart.js, Font Awesome, dan font dari CDN; akses internet diperlukan agar pustaka grafik, ikon, dan font eksternal termuat. Pencatatan serta pembacaan data ditangani Apps Script/Sheets.
-- Google Sheets adalah database untuk pemakaian pribadi atau tim kecil. Aplikasi ini tidak menggantikan pembukuan akuntansi, tidak mengimpor rekening secara otomatis, dan tidak merekonsiliasi saldo awal. Nilai saldo bersih dihitung dari total transaksi masuk dikurangi transaksi keluar sejak pencatatan dimulai.
+- Google Sheets adalah database untuk pemakaian pribadi atau tim kecil. Aplikasi ini tidak menggantikan pembukuan akuntansi, tidak mengimpor rekening secara otomatis, dan tidak merekonsiliasi saldo awal. Saldo bersih dihitung dari uang masuk dan pengembalian dikurangi seluruh uang keluar. Kartu total pengeluaran memakai nilai sisa pinjaman yang belum dibayar bersama pengeluaran lain.
 - Simpan salinan spreadsheet berkala. Batasi akses spreadsheet dan web app kepada orang yang dipercaya.
 - Jika mengubah kode Apps Script setelah deployment, buat versi deployment baru melalui **Deploy → Manage deployments → Edit → New version**.

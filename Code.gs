@@ -54,6 +54,7 @@ const CATEGORIES = [
   "Pendidikan",
   "Umroh",
   "Pengembalian Pinjaman",
+  "Pakai Uang",
   "Lainnya",
 ];
 function doGet() {
@@ -229,7 +230,10 @@ function bootstrap_(user, ruang) {
     transactions.filter((x) => x.jenis === "masuk" && !isRepayment_(x)),
   );
   const repayments = sum_(transactions.filter(isRepayment_));
-  const expense = sum_(transactions.filter((x) => x.jenis === "keluar"));
+  const expense = expenseTotal_(transactions, loans);
+  const cashExpense = sum_(
+    transactions.filter((x) => x.jenis === "keluar"),
+  );
   const borrowed = sum_(loans),
     outstanding = activeLoans.reduce(
       (s, x) => s + Math.max(0, Number(x.jumlah) - Number(x.terbayar)),
@@ -258,14 +262,17 @@ function bootstrap_(user, ruang) {
       income,
       repayments,
       expense,
-      balance: income + repayments - expense,
+      balance: income + repayments - cashExpense,
       borrowed,
       outstanding,
       monthIncome: sum_(
         monthly.filter((x) => x.jenis === "masuk" && !isRepayment_(x)),
       ),
       monthRepayments: sum_(monthly.filter(isRepayment_)),
-      monthExpense: sum_(monthly.filter((x) => x.jenis === "keluar")),
+      monthExpense: expenseTotal_(
+        monthly,
+        loans.filter((x) => String(x.tanggal).slice(0, 7) === month),
+      ),
       txCount: transactions.length,
       openLoans: activeLoans.length,
     },
@@ -560,13 +567,17 @@ function exportData_(user, d) {
       monthTx.filter((x) => x.jenis === "masuk" && !isRepayment_(x)),
     );
     const monthRepayments = sum_(monthTx.filter(isRepayment_));
-    const monthExpense = sum_(monthTx.filter((x) => x.jenis === "keluar"));
+    const monthCashExpense = sum_(monthTx.filter((x) => x.jenis === "keluar"));
+    const monthLoans = loans.filter(
+      (x) => String(x.tanggal).slice(0, 7) === monthKey,
+    );
+    const monthExpense = expenseTotal_(monthTx, monthLoans);
     monthlyRows.push([
       Utilities.formatDate(monthDate, Session.getScriptTimeZone(), "MMM yyyy"),
       monthIncome,
       monthRepayments,
       monthExpense,
-      monthIncome + monthRepayments - monthExpense,
+      monthIncome + monthRepayments - monthCashExpense,
     ]);
   }
   stats
@@ -748,6 +759,16 @@ function isRepayment_(transaction) {
     transaction.jenis === "masuk" &&
     transaction.kategori === "Pengembalian Pinjaman"
   );
+}
+function expenseTotal_(transactions, loans) {
+  const outgoing = transactions.filter((x) => x.jenis === "keluar");
+  const otherExpenses = sum_(outgoing.filter((x) => x.kategori !== "Pinjaman"));
+  const outstandingLoans = loans.reduce(
+    (total, loan) =>
+      total + Math.max(0, Number(loan.jumlah) - Number(loan.terbayar)),
+    0,
+  );
+  return otherExpenses + outstandingLoans;
 }
 function writeById_(sh, id, row) {
   const old = findById_(sh, id);

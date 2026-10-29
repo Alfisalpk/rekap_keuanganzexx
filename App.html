@@ -55,6 +55,7 @@
     dashboard: "Ringkasan keuangan",
     transactions: "Transaksi",
     loans: "Peminjaman",
+    spending: "Pakai Uang",
     calendar: "Kalender keuangan",
     statistics: "Statistik keuangan",
     reports: "Rekap & ekspor",
@@ -99,7 +100,7 @@
     el.className = "toast" + (error ? " error" : "");
     el.textContent = message;
     $("#toastHost").append(el);
-    setTimeout(() => el.remove(), 3500);
+    setTimeout(() => el.remove(), 8000);
   }
   function apiError(e) {
     toast(e.message || "Terjadi kesalahan.", true);
@@ -182,6 +183,7 @@
         "dashboard",
         "transactions",
         "loans",
+        "spending",
         "calendar",
         "statistics",
         "reports",
@@ -207,6 +209,8 @@
           ? "Analisis pola keuangan dan bandingkan perkembangan tiap bulan."
           : page === "calendar"
             ? "Pilih tanggal untuk mencatat pemasukan atau pengeluaran."
+          : page === "spending"
+            ? "Catat penggunaan uang bersama beserta anggota dan keperluannya."
             : "";
     $("#sidebar").classList.remove("open");
     loadData();
@@ -221,6 +225,7 @@
         dashboard: renderDashboard,
         transactions: renderTransactions,
         loans: renderLoans,
+        spending: renderSpending,
         calendar: renderCalendar,
         statistics: renderStatistics,
         reports: renderReports,
@@ -274,7 +279,7 @@ ${money(s.monthIncome)}
       `Bulan ini 
 <strong>
 ${money(s.monthExpense)}
-</strong>
+</strong> · Termasuk sisa pinjaman dan Pakai Uang
 `,
     )}${metric("Sisa pinjaman", money(s.outstanding), "fa-solid fa-hand-holding-dollar pink", "pink", `${s.openLoans} pinjaman belum lunas`)}
 </div>
@@ -402,7 +407,11 @@ ${transactionTable(state.data.transactions.slice(0, 6), false)}
       options: chartOptions(),
     });
   }
-  function transactionTable(items, includeActions = true) {
+  function transactionTable(
+    items,
+    includeActions = true,
+    personLabel = "Dicatat oleh",
+  ) {
     if (!items.length)
       return `
 <div class="empty">
@@ -429,9 +438,7 @@ Kategori
 <th>
 Keterangan
 </th>
-<th>
-Dicatat oleh
-</th>
+<th>${esc(personLabel)}</th>
 <th>
 Jumlah
 </th>
@@ -712,6 +719,22 @@ Belum ada catatan peminjaman.
 </article>
 `;
   }
+  function renderSpending(root) {
+    const items = state.data.transactions.filter(
+      (x) => x.jenis === "keluar" && x.kategori === "Pakai Uang",
+    );
+    root.innerHTML = `
+<article class="card table-card">
+<div class="card-head">
+<div>
+<div class="card-title">Riwayat Pakai Uang <span class="badge gray">${items.length}</span></div>
+<div class="card-subtitle">Setiap penggunaan dicatat sebagai pengeluaran dan masuk ke rekap keuangan.</div>
+</div>
+<button class="button primary small" data-action="newSpending"><i class="fa-solid fa-plus"></i> Catat pemakaian</button>
+</div>
+${items.length ? transactionTable(items, true, "Anggota yang memakai") : `<div class="empty">Belum ada pemakaian uang bersama.</div>`}
+</article>`;
+  }
   function renderCalendar(root) {
     const y = state.month.getFullYear(),
       m = state.month.getMonth(),
@@ -803,15 +826,20 @@ Pilih tanggal untuk menambahkan catatan keuangan pada hari tersebut.
       ins = tx
         .filter((x) => x.jenis === "masuk" && !isRepaymentTransaction(x))
         .reduce((s, x) => s + Number(x.jumlah), 0),
-      outs = tx
-        .filter((x) => x.jenis === "keluar")
-        .reduce((s, x) => s + Number(x.jumlah), 0),
+      outs = state.data.summary.expense,
       categories = {};
     tx.filter((x) => x.jenis === "keluar").forEach(
       (x) =>
         (categories[x.kategori] =
           (categories[x.kategori] || 0) + Number(x.jumlah)),
     );
+    const outstandingLoans = state.data.loans.reduce(
+      (sum, x) =>
+        sum + Math.max(0, Number(x.jumlah) - Number(x.terbayar)),
+      0,
+    );
+    if (outstandingLoans > 0) categories.Pinjaman = outstandingLoans;
+    else delete categories.Pinjaman;
     const top = Object.entries(categories)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 5);
@@ -1024,7 +1052,7 @@ Besaran pengeluaran terhadap kategori lain
           {
             label: "Saldo",
             data: ms.income.map(
-              (v, i) => v + ms.repayments[i] - ms.expense[i],
+              (v, i) => v + ms.repayments[i] - ms.cashExpense[i],
             ),
             backgroundColor: "#24b88a",
             borderRadius: 4,
@@ -1309,7 +1337,8 @@ Versi ${"1.0.0"} · Zona waktu mengikuti pengaturan project Apps Script.
       labels = [],
       income = [],
       repayments = [],
-      expense = [];
+      expense = [],
+      cashExpense = [];
     for (let i = 11; i >= 0; i--) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1),
         key = isoDate(d).slice(0, 7);
@@ -1317,6 +1346,9 @@ Versi ${"1.0.0"} · Zona waktu mengikuti pengaturan project Apps Script.
         new Intl.DateTimeFormat("id-ID", { month: "short" }).format(d),
       );
       const a = state.data.transactions.filter(
+        (x) => String(x.tanggal).slice(0, 7) === key,
+      );
+      const monthLoans = state.data.loans.filter(
         (x) => String(x.tanggal).slice(0, 7) === key,
       );
       income.push(
@@ -1331,19 +1363,32 @@ Versi ${"1.0.0"} · Zona waktu mengikuti pengaturan project Apps Script.
           .filter(isRepaymentTransaction)
           .reduce((s, x) => s + Number(x.jumlah), 0),
       );
-      expense.push(
+      expense.push(expenseTotal(a, monthLoans));
+      cashExpense.push(
         a
           .filter((x) => x.jenis === "keluar")
-          .reduce((s, x) => s + Number(x.jumlah), 0),
+          .reduce((sum, x) => sum + Number(x.jumlah), 0),
       );
     }
-    return { labels, income, repayments, expense };
+    return { labels, income, repayments, expense, cashExpense };
   }
   function isRepaymentTransaction(transaction) {
     return (
       transaction.jenis === "masuk" &&
       transaction.kategori === "Pengembalian Pinjaman"
     );
+  }
+  function expenseTotal(transactions, loans) {
+    const outgoing = transactions.filter((x) => x.jenis === "keluar"),
+      otherExpenses = outgoing
+        .filter((x) => x.kategori !== "Pinjaman")
+        .reduce((sum, x) => sum + Number(x.jumlah), 0),
+      outstandingLoans = loans.reduce(
+        (sum, x) =>
+          sum + Math.max(0, Number(x.jumlah) - Number(x.terbayar)),
+        0,
+      );
+    return otherExpenses + outstandingLoans;
   }
   function chartOptions() {
     return {
@@ -1616,6 +1661,36 @@ ${esc(x.keterangan || "")}
       }
     };
   }
+  function spendingModal() {
+    openModal(
+      "Catat Pakai Uang",
+      `Pengeluaran bersama · ${state.ruang === "tabungan" ? "Tabungan Bersama" : "Umroh Bersama"}`,
+      `
+<input type="hidden" name="ruang" value="${state.ruang}">
+<input type="hidden" name="jenis" value="keluar">
+<input type="hidden" name="kategori" value="Pakai Uang">
+<div class="form-grid">
+${field("Tanggal pemakaian", "tanggal", isoDate(new Date()), "date")}
+${field("Nama anggota yang memakai uang", "dicatatOleh", state.user.nama)}
+${field("Jumlah (Rp)", "jumlah", "", "number", true, 'min="1" step="1" placeholder="Contoh: 50000"')}
+<div class="field" style="grid-column:1/-1"><label>Keperluan / keterangan</label><textarea name="keterangan" maxlength="500" required placeholder="Contoh: Belanja kebutuhan bersama"></textarea></div>
+</div>`,
+      "Simpan pengeluaran",
+    );
+    $("#modalForm").onsubmit = async (event) => {
+      event.preventDefault();
+      const d = Object.fromEntries(new FormData(event.currentTarget));
+      d.jumlah = Number(d.jumlah);
+      try {
+        await call("saveTransaction", d);
+        closeModal();
+        toast("Pemakaian uang berhasil dicatat sebagai pengeluaran.");
+        loadData();
+      } catch (error) {
+        $("#modalError").textContent = error.message;
+      }
+    };
+  }
   function repayModal(loan) {
     const remaining = Number(loan.jumlah) - Number(loan.terbayar);
     openModal(
@@ -1802,6 +1877,9 @@ base64,${result.data}`;
           break;
         case "newLoan":
           loanModal();
+          break;
+        case "newSpending":
+          spendingModal();
           break;
         case "repayLoan":
           repayModal(
