@@ -412,6 +412,11 @@
   .loan-alerts {
     padding: 10px 19px 17px;
   }
+  .loan-alerts-scroll {
+    max-height: 205px;
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+  }
   .loan-alert {
     padding: 12px 0;
     border-bottom: 1px solid #f0f2f5;
@@ -452,6 +457,11 @@
   .section-gap {
     margin-top: 17px;
   }
+  .dashboard-transactions-scroll {
+    max-height: 390px;
+    overflow: auto;
+    scrollbar-gutter: stable;
+  }
   .table-card {
     overflow: hidden;
   }
@@ -459,6 +469,25 @@
     display: flex;
     gap: 9px;
     align-items: center;
+  }
+  .loan-filter-tools {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .loan-filter-search {
+    width: 185px;
+  }
+  .loan-filter-date-wrap {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    color: #7d8796;
+    font-size: 10px;
+  }
+  .table-tools .loan-filter-date {
+    width: 145px;
+    min-width: 135px;
+    padding: 0 7px;
   }
   .search {
     height: 35px;
@@ -493,6 +522,17 @@
   }
   .table-wrap {
     overflow: auto;
+  }
+  .list-scroll {
+    overflow: auto;
+    scrollbar-gutter: stable;
+  }
+  .transactions-list-scroll,
+  .spending-list-scroll {
+    max-height: 650px;
+  }
+  .loans-list-scroll {
+    max-height: 650px;
   }
   table {
     width: 100%;
@@ -655,6 +695,39 @@
   .day-event.umroh {
     background: #f1efff;
     color: #705cda;
+  }
+  .calendar-day-actions {
+    display: flex;
+    gap: 8px;
+    padding: 0 23px 14px;
+    border-bottom: 1px solid var(--line);
+  }
+  .calendar-day-details {
+    max-height: min(60vh, 480px);
+    overflow-y: auto;
+  }
+  .calendar-transaction-detail {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 8px 12px;
+    padding: 13px 0;
+    border-bottom: 1px solid #f0f2f5;
+  }
+  .calendar-transaction-detail:last-child {
+    border-bottom: 0;
+  }
+  .calendar-transaction-detail small {
+    display: block;
+    color: #98a2b3;
+    font-size: 10px;
+    margin-top: 5px;
+  }
+  .calendar-transaction-detail p {
+    grid-column: 1 / -1;
+    margin: 0;
+    color: #667085;
+    font-size: 11px;
+    white-space: normal;
   }
   .filter-row {
     display: flex;
@@ -1065,20 +1138,30 @@
       min-height: 70px;
       padding: 5px;
     }
+    .calendar-card {
+      overflow-x: auto;
+    }
+    .calendar-grid {
+      min-width: 720px;
+    }
     .weekday {
       padding: 10px 1px;
       font-size: 9px;
     }
     .day-event {
-      font-size: 0;
-      padding: 0;
-      width: 7px;
-      height: 7px;
-      border-radius: 50%;
+      font-size: 9px;
+      line-height: 1.35;
+      padding: 4px 5px;
+      width: auto;
+      height: auto;
+      border-radius: 5px;
+      white-space: normal;
+      overflow: visible;
+      text-overflow: clip;
     }
     .day-events {
-      flex-direction: row;
-      justify-content: flex-end;
+      flex-direction: column;
+      align-items: stretch;
     }
     .calendar-toolbar {
       padding: 12px;

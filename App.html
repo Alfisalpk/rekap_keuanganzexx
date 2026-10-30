@@ -42,6 +42,9 @@
     charts: [],
     search: "",
     filterMonth: "all",
+    loanSearch: "",
+    loanDateFrom: "",
+    loanDateTo: "",
   };
   let loadingCount = 0;
   function setLoading(active, message = "Sedang memuat…") {
@@ -257,7 +260,7 @@ ${foot || "Ringkasan seluruh periode"}
   }
   function renderDashboard(root) {
     const s = state.data.summary,
-      loans = state.data.loans.filter((x) => x.status !== "Lunas").slice(0, 5),
+      loans = state.data.loans.filter((x) => x.status !== "Lunas"),
       months = monthlySeries();
     root.innerHTML = `
 <div class="grid stats-grid">
@@ -323,7 +326,7 @@ ${s.openLoans} aktif
 ${
   loans.length
     ? `
-<div class="loan-alerts">
+<div class="loan-alerts loan-alerts-scroll">
 ${loans
   .map(
     (x) => `
@@ -376,7 +379,9 @@ Aktivitas terbaru di ${state.ruang === "tabungan" ? "Tabungan Bersama" : "Umroh 
 Semua transaksi
 </button>
 </div>
-${transactionTable(state.data.transactions.slice(0, 6), false)}
+<div class="dashboard-transactions-scroll">
+${transactionTable(state.data.transactions, false)}
+</div>
 </article>
 `;
     makeChart("cashChart", {
@@ -548,7 +553,9 @@ Catat massal
 </button>
 </div>
 </div>
+<div class="list-scroll transactions-list-scroll">
 ${transactionTable(items, true)}
+</div>
 </article>
 `;
   }
@@ -565,8 +572,19 @@ ${transactionTable(items, true)}
     );
   }
   function renderLoans(root) {
-    const loans = state.data.loans,
-      open = loans.filter((x) => x.status !== "Lunas"),
+    const allLoans = state.data.loans,
+      query = state.loanSearch.trim().toLowerCase(),
+      loans = allLoans.filter((x) => {
+        const date = String(x.tanggal || "").slice(0, 10),
+          searchable = [x.kode, x.peminjam, x.keterangan, x.status]
+            .join(" ")
+            .toLowerCase();
+        return (
+          (!state.loanDateFrom || date >= state.loanDateFrom) &&
+          (!state.loanDateTo || date <= state.loanDateTo) &&
+          (!query || searchable.includes(query))
+        );
+      }),
       s = state.data.summary;
     root.innerHTML = `
 <div class="grid insight-grid" style="margin-bottom:16px">
@@ -574,7 +592,7 @@ ${[
   ["Total dipinjam", money(s.borrowed)],
   [
     "Sudah dikembalikan",
-    money(loans.reduce((a, x) => a + Number(x.terbayar), 0)),
+    money(allLoans.reduce((a, x) => a + Number(x.terbayar), 0)),
   ],
   ["Sisa pinjaman", money(s.outstanding)],
 ]
@@ -605,16 +623,21 @@ ${loans.length}
 Setiap pengembalian otomatis masuk ke transaksi pemasukan
 </div>
 </div>
+<div class="table-tools loan-filter-tools">
+<input class="search loan-filter-search" id="loanSearch" placeholder="Cari kode, peminjam, keterangan…" aria-label="Cari data pinjaman" value="${esc(state.loanSearch)}">
+<label class="loan-filter-date-wrap"><span>Dari</span><input class="select loan-filter-date" id="loanDateFrom" type="date" aria-label="Tanggal awal" value="${esc(state.loanDateFrom)}"></label>
+<label class="loan-filter-date-wrap"><span>Sampai</span><input class="select loan-filter-date" id="loanDateTo" type="date" aria-label="Tanggal akhir" value="${esc(state.loanDateTo)}"></label>
 <button class="button primary small" data-action="newLoan">
 <i class="fa-solid fa-plus">
 </i>
  Catat pinjaman
 </button>
 </div>
+</div>
 ${
   loans.length
     ? `
-<div class="table-wrap">
+<div class="table-wrap list-scroll loans-list-scroll">
 <table>
 <thead>
 <tr>
@@ -712,7 +735,7 @@ Bayar
 `
     : `
 <div class="empty">
-Belum ada catatan peminjaman.
+${allLoans.length ? "Tidak ada data pinjaman yang sesuai dengan filter." : "Belum ada catatan peminjaman."}
 </div>
 `
 }
@@ -732,7 +755,7 @@ Belum ada catatan peminjaman.
 </div>
 <button class="button primary small" data-action="newSpending"><i class="fa-solid fa-plus"></i> Catat pemakaian</button>
 </div>
-${items.length ? transactionTable(items, true, "Anggota yang memakai") : `<div class="empty">Belum ada pemakaian uang bersama.</div>`}
+${items.length ? `<div class="list-scroll spending-list-scroll">${transactionTable(items, true, "Anggota yang memakai")}</div>` : `<div class="empty">Belum ada pemakaian uang bersama.</div>`}
 </article>`;
   }
   function renderCalendar(root) {
@@ -769,8 +792,7 @@ ${events
     (x) => `
 <div class="day-event ${x.jenis === "keluar" ? "keluar" : ""}
 ${state.ruang === "umroh" ? "umroh" : ""}
-" title="${esc(x.keterangan)}
-">
+" title="${esc(x.keterangan)}" data-action="calendarDay" data-date="${iso}">
 ${esc(x.kategori)} · ${money(x.jumlah)}
 </div>
 `,
@@ -819,6 +841,35 @@ ${x}
 Pilih tanggal untuk menambahkan catatan keuangan pada hari tersebut.
 </div>
 `;
+  }
+  function calendarDateModal(date) {
+    const items = state.data.transactions.filter((x) => x.tanggal === date),
+      formattedDate = new Intl.DateTimeFormat("id-ID", {
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+      }).format(new Date(`${date}T00:00:00`));
+    $("#modalHost").innerHTML = `
+<div class="modal-backdrop" data-action="backdrop">
+<section class="modal calendar-day-modal">
+<header class="modal-head">
+<div><h2>${formattedDate}</h2><p>Aktivitas transaksi pada tanggal ini</p></div>
+<button class="icon-button" data-action="closeModal"><i class="fa-solid fa-xmark"></i></button>
+</header>
+<div class="calendar-day-actions">
+<button class="button small soft" data-action="calendarDateDetails" data-date="${date}">Lihat detail</button>
+<button class="button primary small" data-action="calendarDateAdd" data-date="${date}"><i class="fa-solid fa-plus"></i> Catat transaksi</button>
+</div>
+<div class="modal-body calendar-day-details">
+${items.length ? items.map((x) => `
+<article class="calendar-transaction-detail">
+<div><span class="badge ${x.jenis === "masuk" ? "green" : "red"}">${x.jenis === "masuk" ? "Masuk" : "Keluar"}</span> <b>${esc(x.kategori)}</b><small>${esc(x.kode)} · ${esc(x.dicatatOleh || "—")}</small></div>
+<strong class="${x.jenis === "masuk" ? "money-in" : "money-out"}">${money(x.jumlah)}</strong>
+<p>${esc(x.keterangan || "Tanpa keterangan")}</p>
+</article>`).join("") : `<div class="empty">Belum ada transaksi pada tanggal ini.</div>`}
+</div>
+</section>
+</div>`;
   }
   function renderStatistics(root) {
     const ms = monthlySeries(),
@@ -1798,11 +1849,22 @@ base64,${result.data}`;
       const next = $("#txSearch");
       next.focus();
       next.setSelectionRange(pos, pos);
+    } else if (e.target.id === "loanSearch") {
+      const pos = e.target.selectionStart;
+      state.loanSearch = e.target.value;
+      renderPage();
+      const next = $("#loanSearch");
+      next.focus();
+      next.setSelectionRange(pos, pos);
     }
   });
   document.addEventListener("change", (e) => {
     if (e.target.id === "txMonth") {
       state.filterMonth = e.target.value || "all";
+      renderPage();
+    } else if (e.target.id === "loanDateFrom" || e.target.id === "loanDateTo") {
+      state[e.target.id === "loanDateFrom" ? "loanDateFrom" : "loanDateTo"] =
+        e.target.value;
       renderPage();
     }
   });
@@ -1898,6 +1960,12 @@ base64,${result.data}`;
           }
           break;
         case "calendarDay":
+          calendarDateModal(b.dataset.date);
+          break;
+        case "calendarDateDetails":
+          calendarDateModal(b.dataset.date);
+          break;
+        case "calendarDateAdd":
           transactionModal(null, b.dataset.date);
           break;
         case "monthPrev":
